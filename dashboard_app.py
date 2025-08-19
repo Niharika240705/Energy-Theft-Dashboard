@@ -1,5 +1,7 @@
 # dashboard_app.py
 
+# dashboard_app.py (Corrected and Final Version)
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,7 +15,6 @@ st.set_page_config(page_title="Energy Theft Detection Dashboard", layout="wide")
 @st.cache_data
 def load_model():
     """Loads the saved XGBoost model."""
-    # Ensure the model file name here matches the one in your folder
     return joblib.load('tuned_energy_theft_detector.pkl')
 
 model = load_model()
@@ -36,8 +37,7 @@ if uploaded_file is not None:
         st.header(f"Analysis for Consumer Data: `{uploaded_file.name}`")
         usage_values = user_data['USAGE'].values
 
-        # --- Feature Engineering (Must be IDENTICAL to the notebook) ---
-        # NOTE: Add your advanced features here if you used them for the final model
+        # --- Feature Engineering ---
         features = {
             'mean_usage': np.mean(usage_values),
             'std_usage': np.std(usage_values),
@@ -58,7 +58,6 @@ if uploaded_file is not None:
         col1.metric("Mean Daily Usage (kWh)", f"{features['mean_usage']:.2f}")
         col2.metric("Days with Zero Usage", f"{features['zero_usage_days']}")
         col3.metric("Max Single Day Usage", f"{features['max_usage']:.2f}")
-
         st.divider()
 
         st.subheader("Prediction Result")
@@ -69,15 +68,15 @@ if uploaded_file is not None:
 
         # --- 1. Visualize the Consumption Data ---
         st.subheader("Daily Consumption Pattern")
-        fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(user_data['USAGE'], color='dodgerblue', linewidth=2)
-        ax.set_title("Daily Electricity Consumption (kWh)")
-        ax.set_xlabel("Day")
-        ax.set_ylabel("Usage (kWh)")
-        ax.grid(True, linestyle='--', alpha=0.6)
-        st.pyplot(fig)
+        fig_consum, ax_consum = plt.subplots(figsize=(12, 4))
+        ax_consum.plot(user_data['USAGE'], color='dodgerblue', linewidth=2)
+        ax_consum.set_title("Daily Electricity Consumption (kWh)")
+        ax_consum.set_xlabel("Day")
+        ax_consum.set_ylabel("Usage (kWh)")
+        ax_consum.grid(True, linestyle='--', alpha=0.6)
+        st.pyplot(fig_consum)
 
-        # --- 2. Explain the Prediction with a SHAP Plot ---
+        # --- 2. Explain the Prediction with a SHAP Plot (IMPROVED VERSION) ---
         st.subheader("What Influenced This Prediction?")
         st.write(
             "The plot below shows which features pushed the prediction towards 'Theft' (red arrows) "
@@ -86,13 +85,13 @@ if uploaded_file is not None:
         shap_values = explainer.shap_values(features_df)
         fig_shap, ax_shap = plt.subplots()
         shap.force_plot(
-            explainer.expected_value,
-            shap_values, # For XGBoost, use shap_values directly
-            features_df,
+            base_value=explainer.expected_value,
+            shap_values=shap_values[0],
+            features=features_df.iloc[0],
             matplotlib=True,
             show=False
         )
-        st.pyplot(fig_shap, bbox_inches='tight')
+        st.pyplot(fig_shap, bbox_inches='tight', clear_figure=True)
 
     else:
         st.error("Error: The uploaded CSV file must contain a column named 'USAGE'.")
