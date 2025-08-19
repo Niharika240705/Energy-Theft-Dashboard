@@ -1,4 +1,4 @@
-# dashboard_app.py (FINAL, SIMPLEST, GUARANTEED-TO-WORK VERSION)
+# dashboard_app.py (FINAL, MATPLOTLIB-ONLY, GUARANTEED-TO-WORK VERSION)
 
 import streamlit as st
 import pandas as pd
@@ -68,32 +68,57 @@ if uploaded_file is not None:
 
             # --- Visualization ---
             st.subheader("Daily Consumption Pattern")
-            st.line_chart(user_data['USAGE']) # Using Streamlit's native, robust chart
+            fig_consum, ax_consum = plt.subplots(figsize=(10, 4))
+            ax_consum.plot(user_data['USAGE'], color='dodgerblue')
+            ax_consum.set_xlabel('Day')
+            ax_consum.set_ylabel('Usage (kWh)')
+            ax_consum.set_title('Daily Energy Consumption')
+            ax_consum.grid(True, alpha=0.3)
+            st.pyplot(fig_consum)
 
-            # --- Explanation ---
+            # --- Explanation with 2-Column Layout (FINAL FIX) ---
             st.subheader("What Influenced This Prediction?")
             
             # Calculate SHAP values
             shap_values = explainer.shap_values(features_df)
             
-            # Use the simple and reliable JavaScript-based force plot
-            shap.initjs()
-            st.components.v1.html(
-                shap.force_plot(
-                    explainer.expected_value,
-                    shap_values[0],
-                    features_df.iloc[0],
-                    link="logit"
-                ).html(),
-                height=160
-            )
+            # Create a DataFrame for plotting and display
+            shap_df = pd.DataFrame({
+                'Feature': features_df.columns,
+                'SHAP Value': shap_values[0],
+                'Actual Value': features_df.iloc[0].values
+            }).sort_values('SHAP Value', key=abs, ascending=False)
+            
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.markdown("##### Visual Contribution")
+                fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
+                colors = ['red' if x > 0 else 'green' for x in shap_df['SHAP Value']]
+                ax_shap.barh(shap_df['Feature'], shap_df['SHAP Value'], color=colors)
+                ax_shap.axvline(x=0, color='grey', linestyle='--')
+                ax_shap.set_xlabel('SHAP Value (Impact on Prediction)')
+                st.pyplot(fig_shap)
+
+            with col2:
+                st.markdown("##### Detailed Values")
+                st.dataframe(
+                    shap_df.style.format({
+                        'SHAP Value': '{:.3f}',
+                        'Actual Value': '{:.2f}'
+                    }).background_gradient(
+                        cmap='RdYlGn_r', # A standard, guaranteed-to-exist colormap
+                        subset=['SHAP Value']
+                    ),
+                    hide_index=True,
+                    use_container_width=True
+                )
             
             st.write(f"**Base Value (Average Prediction Score):** {explainer.expected_value:.4f}")
             st.write("""
-            **How to interpret this plot:**
-            - **Red arrows (pushing right)**: Features that increased the prediction score towards **"Theft"**.
-            - **Blue arrows (pushing left)**: Features that decreased the prediction score towards **"Normal"**.
-            - The size of the arrow shows the magnitude of the feature's impact.
+            **How to interpret this:**
+            - **Red bars / positive SHAP values**: Features that pushed the prediction towards **"Theft"**.
+            - **Green bars / negative SHAP values**: Features that pushed the prediction towards **"Normal"**.
             """)
 
         else:
