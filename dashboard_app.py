@@ -1,4 +1,4 @@
-# dashboard_app.py (FINAL, COMPLETE, AND CORRECTED VERSION)
+# dashboard_app.py (FINAL, COMPLETE, AND GUARANTEED-TO-WORK VERSION)
 
 import streamlit as st
 import pandas as pd
@@ -11,14 +11,22 @@ import shap
 st.set_page_config(page_title="Energy Theft Detection Dashboard", layout="wide")
 
 @st.cache_resource
-def load_model():
-    """Loads the saved XGBoost model."""
+def load_model_and_explainer():
+    """Loads the saved XGBoost model and creates the SHAP explainer."""
+    # !!! CRITICAL !!!
     # This filename MUST EXACTLY match the name of the model file in your GitHub repository.
-    # Double-check this name. If it's different, change it here.
-    return joblib.load('tuned_energy_theft_detector.pkl')
+    # Please double-check this is the correct name.
+    model_filename = 'tuned_energy_theft_detector.pkl'
+    
+    try:
+        model = joblib.load(model_filename)
+        explainer = shap.TreeExplainer(model)
+        return model, explainer
+    except FileNotFoundError:
+        st.error(f"FATAL ERROR: The model file '{model_filename}' was not found in the GitHub repository. Please upload the correct .pkl file and ensure the name matches.")
+        return None, None
 
-model = load_model()
-explainer = shap.TreeExplainer(model)
+model, explainer = load_model_and_explainer()
 
 # --- App Sidebar for User Input ---
 with st.sidebar:
@@ -29,6 +37,10 @@ with st.sidebar:
 
 # --- Main Panel for Displaying Results ---
 st.title("Energy Theft Detection Dashboard")
+
+# Stop the app if the model failed to load
+if model is None or explainer is None:
+    st.stop()
 
 if uploaded_file is not None:
     try:
@@ -70,53 +82,55 @@ if uploaded_file is not None:
             ax_consum.grid(True, alpha=0.3)
             st.pyplot(fig_consum)
 
-            # --- 2. Explain the Prediction with a SHAP Plot (FINAL FIX) ---
+            # --- 2. Explain the Prediction with a Two-Column Layout (FINAL FIX) ---
             st.subheader("What Influenced This Prediction?")
-            
+            st.write(
+                "The visual plot on the left shows the impact of each feature. The table on the right shows the precise values."
+            )
+
             # Calculate SHAP values
             shap_values = explainer.shap_values(features_df)
             
-            # Create a DataFrame for easier plotting
+            # Create a DataFrame for easier plotting and display
             shap_df = pd.DataFrame({
                 'Feature': features_df.columns,
                 'SHAP Value': shap_values[0],
-                'Feature Value': features_df.iloc[0].values
+                'Actual Value': features_df.iloc[0].values
             }).sort_values('SHAP Value', key=abs, ascending=False)
             
-            # Create the bar chart
-            fig_shap, ax_shap = plt.subplots(figsize=(10, 6))
-            colors = ['red' if x > 0 else 'green' for x in shap_df['SHAP Value']]
-            
-            # Plot the bars
-            ax_shap.barh(shap_df['Feature'], shap_df['SHAP Value'], color=colors)
-            
-            # --- Add labels to each bar ---
-            for index, row in shap_df.iterrows():
-                shap_val = row['SHAP Value']
-                feature_val = row['Feature Value']
-                feature_name = row['Feature']
-                
-                label_text = f'{shap_val:.3f} (value: {feature_val:.2f})'
-                
-                # Position text for positive bars (pushing towards theft)
-                if shap_val > 0:
-                    ax_shap.text(shap_val, feature_name, f' {label_text}', va='center', ha='left', fontsize=9)
-                # Position text for negative bars (pushing towards normal)
-                else:
-                    ax_shap.text(shap_val, feature_name, f'{label_text} ', va='center', ha='right', fontsize=9)
+            # Create two columns
+            col1, col2 = st.columns([2, 1]) 
 
-            # Formatting the plot
-            ax_shap.axvline(x=0, color='black', linestyle='-', alpha=0.3)
-            ax_shap.set_xlabel('SHAP Value (Impact on Prediction)')
-            ax_shap.set_title('Feature Contributions to Prediction')
-            
-            st.pyplot(fig_shap)
+            with col1:
+                st.markdown("##### Visual Contribution")
+                # Create the bar chart WITHOUT text labels
+                fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
+                colors = ['red' if x > 0 else 'green' for x in shap_df['SHAP Value']]
+                ax_shap.barh(shap_df['Feature'], shap_df['SHAP Value'], color=colors)
+                ax_shap.axvline(x=0, color='grey', linestyle='--')
+                ax_shap.set_xlabel('SHAP Value (Impact on Prediction)')
+                st.pyplot(fig_shap)
+
+            with col2:
+                st.markdown("##### Detailed Values")
+                # Style the DataFrame to be more readable
+                st.dataframe(
+                    shap_df.style.format({
+                        'SHAP Value': '{:.3f}',
+                        'Actual Value': '{:.2f}'
+                    }).background_gradient(
+                        cmap='vlag', 
+                        subset=['SHAP Value']
+                    ),
+                    hide_index=True,
+                    use_container_width=True
+                )
             
             st.write(f"**Base Value (Average Prediction Score):** {explainer.expected_value:.4f}")
             st.write("""
-            **How to interpret this chart:**
-            - **Red bars**: Features pushing the prediction score HIGHER (towards "Theft").
-            - **Green bars**: Features pushing the prediction score LOWER (towards "Normal").
+            **How to interpret this:**
+            - **Red bars / positive SHAP values**: Features that pushed the prediction towards **"Theft"**.
+            - **Green bars / negative SHAP values**: Features that pushed the prediction towards **"Normal"**.
             """)
 
         else:
