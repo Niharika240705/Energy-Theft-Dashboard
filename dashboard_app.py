@@ -1,4 +1,4 @@
-# dashboard_app.py (FIXED VERSION)
+# dashboard_app.py (COMPLETELY FIXED VERSION)
 
 import streamlit as st
 import pandas as pd
@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import shap
 from io import BytesIO
 import base64
+import os
 
 # --- Load Model and Set Up App Configuration ---
 st.set_page_config(page_title="Energy Theft Detection Dashboard", layout="wide")
@@ -19,13 +20,9 @@ def load_model():
 
 model = load_model()
 
-# Initialize SHAP explainer (cached for performance)
-@st.cache_resource
-def load_explainer(model):
-    """Loads the SHAP explainer for the model."""
-    return shap.TreeExplainer(model)
-
-explainer = load_explainer(model)
+# Initialize SHAP explainer without any caching decorators
+# Just create it directly
+explainer = shap.TreeExplainer(model)
 
 # --- App Sidebar for User Input ---
 with st.sidebar:
@@ -114,38 +111,35 @@ if uploaded_file is not None:
         # Calculate SHAP values
         shap_values = explainer.shap_values(features_df)
         
-        # Create a more reliable SHAP visualization
-        try:
-            # Option 1: Use waterfall plot (more reliable in Streamlit)
-            fig_shap, ax_shap = plt.subplots(figsize=(10, 6))
-            shap.plots._waterfall.waterfall_legacy(explainer.expected_value, 
-                                                 shap_values[0], 
-                                                 features_df.iloc[0],
-                                                 show=False)
-            plt.tight_layout()
-            st.pyplot(fig_shap)
-            
-        except Exception as e:
-            st.warning(f"Waterfall plot failed: {e}. Trying bar plot...")
-            try:
-                # Option 2: Use bar plot as fallback
-                fig_shap, ax_shap = plt.subplots(figsize=(10, 6))
-                shap.summary_plot(shap_values, features_df, plot_type="bar", show=False)
-                plt.tight_layout()
-                st.pyplot(fig_shap)
-            except Exception as e2:
-                st.error(f"Both visualization methods failed: {e2}")
-                
-                # Display SHAP values as a table as last resort
-                st.write("**SHAP Values (Impact on Prediction):**")
-                shap_df = pd.DataFrame({
-                    'Feature': features_df.columns,
-                    'SHAP Value': shap_values[0],
-                    'Feature Value': features_df.iloc[0].values
-                }).sort_values('SHAP Value', key=abs, ascending=False)
-                st.dataframe(shap_df)
-                
-                st.write(f"Base Value: {explainer.expected_value:.4f}")
+        # Create a custom visualization that always works
+        shap_df = pd.DataFrame({
+            'Feature': features_df.columns,
+            'SHAP Value': shap_values[0],
+            'Feature Value': features_df.iloc[0].values
+        }).sort_values('SHAP Value', key=abs, ascending=False)
+        
+        # Create a custom bar chart
+        fig, ax = plt.subplots(figsize=(10, 6))
+        colors = ['red' if x < 0 else 'green' for x in shap_df['SHAP Value']]
+        bars = ax.barh(shap_df['Feature'], shap_df['SHAP Value'], color=colors)
+        ax.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+        ax.set_xlabel('SHAP Value (Impact on Prediction)')
+        ax.set_title('Feature Contributions to Prediction')
+        
+        # Add value labels to bars
+        for i, (value, feature_val) in enumerate(zip(shap_df['SHAP Value'], shap_df['Feature Value'])):
+            ax.text(value, i, f' {value:.3f} (value: {feature_val:.2f})', 
+                    va='center', ha='left' if value > 0 else 'right')
+        
+        st.pyplot(fig)
+        
+        st.write(f"**Base Value:** {explainer.expected_value:.4f}")
+        st.write("""
+        **How to interpret this chart:**
+        - **Green bars**: Features that push the prediction toward "Normal Behavior"
+        - **Red bars**: Features that push the prediction toward "Theft Detected"
+        - The length of the bar shows how much each feature contributes
+        """)
 
         # --- Additional Insights ---
         st.subheader("Usage Statistics")
@@ -188,3 +182,8 @@ else:
             'USAGE': [12.5, 14.2, 11.8, 13.5, 15.1, 10.9, 12.3]
         })
         st.dataframe(sample_data, hide_index=True)
+
+# Add debug information at the bottom (can be removed in production)
+with st.expander("Debug Information"):
+    st.write("SHAP Explainer Type:", type(explainer))
+    st.write("Model Type:", type(model))
