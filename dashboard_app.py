@@ -1,4 +1,4 @@
-# dashboard_app.py (Corrected and Final Version)
+# dashboard_app.py (DIAGNOSTIC VERSION)
 
 import streamlit as st
 import pandas as pd
@@ -48,48 +48,54 @@ if uploaded_file is not None:
 
         # --- Prediction and Probability ---
         prediction = model.predict(features_df)[0]
-        prediction_proba = model.predict_proba(features_df)[0]
-        theft_probability = prediction_proba[1]
-
-        # --- Display KPIs and Prediction ---
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Mean Daily Usage (kWh)", f"{features['mean_usage']:.2f}")
-        col2.metric("Days with Zero Usage", f"{features['zero_usage_days']}")
-        col3.metric("Max Single Day Usage", f"{features['max_usage']:.2f}")
-        st.divider()
-
         st.subheader("Prediction Result")
         if prediction == 1:
-            st.error(f"**Theft Detected** with a **{theft_probability:.2%}** probability.")
+            st.error("**Theft Detected**")
         else:
-            st.success(f"**Normal Behavior Detected** (Theft Probability is {theft_probability:.2%}).")
+            st.success("**Normal Behavior Detected**")
 
         # --- 1. Visualize the Consumption Data ---
         st.subheader("Daily Consumption Pattern")
-        fig_consum, ax_consum = plt.subplots(figsize=(12, 4))
-        ax_consum.plot(user_data['USAGE'], color='dodgerblue', linewidth=2)
-        ax_consum.set_title("Daily Electricity Consumption (kWh)")
-        ax_consum.set_xlabel("Day")
-        ax_consum.set_ylabel("Usage (kWh)")
-        ax_consum.grid(True, linestyle='--', alpha=0.6)
+        fig_consum, ax_consum = plt.subplots()
+        ax_consum.plot(user_data['USAGE'], color='dodgerblue')
         st.pyplot(fig_consum)
 
-        # --- 2. Explain the Prediction with a SHAP Plot (IMPROVED VERSION) ---
+        # --- 2. Explain the Prediction with a SHAP Plot (DIAGNOSTIC SECTION) ---
         st.subheader("What Influenced This Prediction?")
-        st.write(
-            "The plot below shows which features pushed the prediction towards 'Theft' (red arrows) "
-            "or 'Normal' (blue arrows). The longer the arrow, the bigger the impact."
-        )
+        
+        # --- DEBUGGING STATEMENTS START HERE ---
+        st.markdown("---")
+        st.subheader("🕵️‍♂️ DEBUGGING INFORMATION")
+        st.write("Below is the internal data being used to generate the plot. If the 'SHAP Values' are all zero, it indicates a version mismatch issue.")
+        
+        st.write("**Feature values passed to the model:**")
+        st.dataframe(features_df)
+        
+        # Calculate SHAP values
         shap_values = explainer.shap_values(features_df)
-        fig_shap, ax_shap = plt.subplots()
-        shap.force_plot(
-            base_value=explainer.expected_value,
-            shap_values=shap_values[0],
-            features=features_df.iloc[0],
-            matplotlib=True,
-            show=False
-        )
-        st.pyplot(fig_shap, bbox_inches='tight', clear_figure=True)
+        
+        st.write("**SHAP values calculated by the explainer:**")
+        st.write(shap_values)
+        
+        st.write("**SHAP explainer's expected value (the base value for the plot):**")
+        st.write(explainer.expected_value)
+        st.markdown("---")
+        # --- DEBUGGING STATEMENTS END HERE ---
+
+        st.write("Attempting to render the plot below:")
+
+        try:
+            fig_shap, ax_shap = plt.subplots()
+            shap.force_plot(
+                base_value=explainer.expected_value,
+                shap_values=shap_values[0],
+                features=features_df.iloc[0],
+                matplotlib=True,
+                show=False
+            )
+            st.pyplot(fig_shap, bbox_inches='tight', clear_figure=True)
+        except Exception as e:
+            st.error(f"An error occurred while trying to generate the Matplotlib SHAP plot: {e}")
 
     else:
         st.error("Error: The uploaded CSV file must contain a column named 'USAGE'.")
