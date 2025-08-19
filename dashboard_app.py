@@ -1,22 +1,22 @@
-# dashboard_app.py (DIAGNOSTIC VERSION)
+# dashboard_app.py (FINAL, MOST ROBUST VERSION)
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import matplotlib.pyplot as plt
 import shap
 
 # --- Load Model and Set Up App Configuration ---
+# Use st.cache_resource for objects that don't need to be reloaded, like models.
+@st.cache_resource
+def load_model_and_explainer():
+    """Loads the saved XGBoost model and creates the SHAP explainer."""
+    model = joblib.load('tuned_energy_theft_detector.pkl')
+    explainer = shap.TreeExplainer(model)
+    return model, explainer
+
 st.set_page_config(page_title="Energy Theft Detection Dashboard", layout="wide")
-
-@st.cache_data
-def load_model():
-    """Loads the saved XGBoost model."""
-    return joblib.load('tuned_energy_theft_detector.pkl')
-
-model = load_model()
-explainer = shap.TreeExplainer(model)
+model, explainer = load_model_and_explainer()
 
 # --- App Sidebar for User Input ---
 with st.sidebar:
@@ -29,76 +29,72 @@ with st.sidebar:
 st.title("Energy Theft Detection Dashboard")
 
 if uploaded_file is not None:
-    user_data = pd.read_csv(uploaded_file)
+    try:
+        user_data = pd.read_csv(uploaded_file)
 
-    if 'USAGE' in user_data.columns:
-        st.header(f"Analysis for Consumer Data: `{uploaded_file.name}`")
-        usage_values = user_data['USAGE'].values
+        if 'USAGE' in user_data.columns:
+            st.header(f"Analysis for Consumer Data: `{uploaded_file.name}`")
+            usage_values = user_data['USAGE'].values
 
-        # --- Feature Engineering ---
-        features = {
-            'mean_usage': np.mean(usage_values),
-            'std_usage': np.std(usage_values),
-            'median_usage': np.median(usage_values),
-            'max_usage': np.max(usage_values),
-            'min_usage': np.min(usage_values),
-            'zero_usage_days': np.sum(usage_values == 0)
-        }
-        features_df = pd.DataFrame([features])
+            # --- Feature Engineering ---
+            features = {
+                'mean_usage': np.mean(usage_values),
+                'std_usage': np.std(usage_values),
+                'median_usage': np.median(usage_values),
+                'max_usage': np.max(usage_values),
+                'min_usage': np.min(usage_values),
+                'zero_usage_days': np.sum(usage_values == 0)
+            }
+            features_df = pd.DataFrame([features])
 
-        # --- Prediction and Probability ---
-        prediction = model.predict(features_df)[0]
-        st.subheader("Prediction Result")
-        if prediction == 1:
-            st.error("**Theft Detected**")
-        else:
-            st.success("**Normal Behavior Detected**")
+            # --- Prediction and Probability ---
+            prediction = model.predict(features_df)[0]
+            theft_probability = model.predict_proba(features_df)[0][1]
 
-        # --- 1. Visualize the Consumption Data ---
-        st.subheader("Daily Consumption Pattern")
-        fig_consum, ax_consum = plt.subplots()
-        ax_consum.plot(user_data['USAGE'], color='dodgerblue')
-        st.pyplot(fig_consum)
+            # --- Display KPIs and Prediction ---
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Mean Daily Usage (kWh)", f"{features['mean_usage']:.2f}")
+            col2.metric("Days with Zero Usage", f"{features['zero_usage_days']}")
+            col3.metric("Max Single Day Usage", f"{features['max_usage']:.2f}")
+            st.divider()
 
-        # --- 2. Explain the Prediction with a SHAP Plot (DIAGNOSTIC SECTION) ---
-        st.subheader("What Influenced This Prediction?")
-        
-        # --- DEBUGGING STATEMENTS START HERE ---
-        st.markdown("---")
-        st.subheader("🕵️‍♂️ DEBUGGING INFORMATION")
-        st.write("Below is the internal data being used to generate the plot. If the 'SHAP Values' are all zero, it indicates a version mismatch issue.")
-        
-        st.write("**Feature values passed to the model:**")
-        st.dataframe(features_df)
-        
-        # Calculate SHAP values
-        shap_values = explainer.shap_values(features_df)
-        
-        st.write("**SHAP values calculated by the explainer:**")
-        st.write(shap_values)
-        
-        st.write("**SHAP explainer's expected value (the base value for the plot):**")
-        st.write(explainer.expected_value)
-        st.markdown("---")
-        # --- DEBUGGING STATEMENTS END HERE ---
+            st.subheader("Prediction Result")
+            if prediction == 1:
+                st.error(f"**Theft Detected** with a **{theft_probability:.2%}** probability.")
+            else:
+                st.success(f"**Normal Behavior Detected** (Theft Probability is {theft_probability:.2%}).")
 
-        st.write("Attempting to render the plot below:")
+            # --- 1. Visualize with Streamlit's NATIVE line chart (More Reliable) ---
+            st.subheader("Daily Consumption Pattern")
+            st.line_chart(user_data['USAGE'])
 
-        try:
-            fig_shap, ax_shap = plt.subplots()
-            shap.force_plot(
-                base_value=explainer.expected_value,
-                shap_values=shap_values[0],
-                features=features_df.iloc[0],
-                matplotlib=True,
-                show=False
+            # --- 2. Explain with the JAVASCRIPT SHAP plot (More Reliable) ---
+            st.subheader("What Influenced This Prediction?")
+            st.write(
+                "The plot below shows which features pushed the prediction towards 'Theft' (red arrows) "
+                "or 'Normal' (blue arrows). The longer the arrow, the bigger the impact."
             )
-            st.pyplot(fig_shap, bbox_inches='tight', clear_figure=True)
-        except Exception as e:
-            st.error(f"An error occurred while trying to generate the Matplotlib SHAP plot: {e}")
+            
+            # Calculate SHAP values
+            shap_values = explainer.shap_values(features_df)
+            
+            # Use st.pydeck_chart for the JS force plot
+            shap.initjs() # Required to load the JS visualization
+            st.components.v1.html(
+                shap.force_plot(
+                    explainer.expected_value,
+                    shap_values[0],
+                    features_df.iloc[0],
+                    link="logit"
+                ).html(),
+                height=160
+            )
 
-    else:
-        st.error("Error: The uploaded CSV file must contain a column named 'USAGE'.")
+        else:
+            st.error("Error: The uploaded CSV file must contain a column named 'USAGE'.")
+
+    except Exception as e:
+        st.error(f"An error occurred while processing the file: {e}")
 
 else:
     st.info("Awaiting for a CSV file to be uploaded.")
