@@ -15,7 +15,7 @@ st.set_page_config(page_title="Energy Theft Detection Dashboard", layout="wide")
 def load_model():
     """Loads the saved XGBoost model."""
     # Ensure this filename matches the one you uploaded to GitHub
-    return joblib.load('final_model_small.pkl')
+    return joblib.load('tuned_energy_theft_detector.pkl')
 
 model = load_model()
 explainer = shap.TreeExplainer(model)
